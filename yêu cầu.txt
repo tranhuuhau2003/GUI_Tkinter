@@ -1,0 +1,7 @@
+lấy được sinh viên vắng nhiều, sắp xếp 
+gởi mail hàng loạt cho sinh viên với nội dung, gởi sinh viên, báo cáo vắng học kì, môn học, vào ngày 
+gởi mail cho sinh viên, gởi mail cho quản lí
+
+có thể chọn nhiều file lên, sau đó thao tác thêm sửa xoá, tổng hợp, có thêm nút clear
+
+
