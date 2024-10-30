@@ -42,49 +42,49 @@ global df_sinh_vien, ma_lop, ten_mon_hoc
 df_sinh_vien, ma_lop, ten_mon_hoc = None, None, None
 
 def load_data():
-    # Mở hộp thoại chọn file
-    Tk().withdraw()  # Ẩn cửa sổ chính
-    file_path = filedialog.askopenfilename(title="Chọn file Excel", filetypes=[("Excel files", "*.xlsx;*.xls")])
-
-    if not file_path:
-        print("Không có file nào được chọn.")
-        return None, None, None, None
-
     try:
+        Tk().withdraw()  # Ẩn cửa sổ chính
+        file_path = filedialog.askopenfilename(title="Chọn file Excel", filetypes=[("Excel files", "*.xlsx;*.xls")])
+        
+        if not file_path:
+            print("Không có file nào được chọn.")
+            return None, None, None, None, None
+
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Không tìm thấy file tại: {file_path}")
 
-        # Đọc file excel
+        # Đọc file Excel
         df = pd.read_excel(file_path, header=None)
         df = df.fillna('')
 
-        # Lấy thông tin "Đợt", "Mã lớp học phần", "Tên môn học"
-        dot = df.iloc[5, 2]  # Đợt nằm ở hàng 5, cột 2
-        ma_lop = df.iloc[7, 2]  # Mã lớp học phần nằm ở hàng 7, cột 2
-        ten_mon_hoc = df.iloc[8, 2]  # Tên môn học nằm ở hàng 8, cột 2
+        # Lấy thông tin cần thiết
+        dot = df.iloc[5, 2]
+        ma_lop = df.iloc[7, 2]
+        ten_mon_hoc = df.iloc[8, 2]
 
-        # Lấy dữ liệu sinh viên từ hàng 13 trở đi
-        df_sinh_vien = df.iloc[13:, [1, 2, 3, 4, 5, 6, 9, 12, 15, 18, 21, 24, 25, 26, 27]]  # Chỉ lấy các cột cần thiết
-        df_sinh_vien.columns = ['MSSV', 'Họ đệm', 'Tên', 'Giới tính', 'Ngày sinh','11/06/2024', '18/06/2024', '25/06/2024', '02/07/2024', '09/07/2024', '23/07/2024', 'Vắng có phép', 'Vắng không phép', 'Tổng số tiết', '(%) vắng']
+        # Lấy dữ liệu sinh viên
+        df_sinh_vien = df.iloc[13:, [1, 2, 3, 4, 5, 6, 9, 12, 15, 18, 21, 24, 25, 26, 27]]
+        df_sinh_vien.columns = ['MSSV', 'Họ đệm', 'Tên', 'Giới tính', 'Ngày sinh', '11/06/2024', '18/06/2024', '25/06/2024', '02/07/2024', '09/07/2024', '23/07/2024', 'Vắng có phép', 'Vắng không phép', 'Tổng số tiết', '(%) vắng']
 
-        # Chuyển đổi các cột phần trăm vắng từ ',', sang '.'
+        # Chuyển đổi các cột phần trăm vắng từ ',' sang '.'
         if '(%) vắng' in df_sinh_vien.columns:
             df_sinh_vien['(%) vắng'] = df_sinh_vien['(%) vắng'].apply(lambda x: str(x).replace(',', '.') if isinstance(x, str) else x)
-            
-        # Xử lý các cột "Vắng có phép" và "Vắng không phép" để đảm bảo chúng là số
+
+        # Chuyển đổi cột vắng có phép và không phép
         df_sinh_vien['Vắng có phép'] = pd.to_numeric(df_sinh_vien['Vắng có phép'], errors='coerce').fillna(0)
         df_sinh_vien['Vắng không phép'] = pd.to_numeric(df_sinh_vien['Vắng không phép'], errors='coerce').fillna(0)
 
-        # Thêm cột "Tổng buổi vắng" bằng cách cộng Vắng có phép và Vắng không phép
+        # Tính tổng buổi vắng
         df_sinh_vien['Tổng buổi vắng'] = df_sinh_vien['Vắng có phép'] + df_sinh_vien['Vắng không phép']
         
-        # Lấy danh sách mssv để thêm email test vào db
+        # Lấy danh sách MSSV
         mssv_list = df_sinh_vien['MSSV'].tolist()        
         
         return df_sinh_vien, dot, ma_lop, ten_mon_hoc, mssv_list
     except Exception as e:
         print(f"Lỗi khi đọc dữ liệu từ Excel: {e}")
         return None, None, None, None, None
+
     
 def add_data_to_sqlite(df_sinh_vien, dot, ma_lop, ten_mon_hoc, mssv_list):
     try:
@@ -93,7 +93,8 @@ def add_data_to_sqlite(df_sinh_vien, dot, ma_lop, ten_mon_hoc, mssv_list):
 
         # Tạo bảng mới với các cột chính xác
         cursor.execute("""CREATE TABLE IF NOT EXISTS students (
-                            mssv TEXT PRIMARY KEY,
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            mssv TEXT,
                             ho_dem TEXT,
                             ten TEXT,
                             gioi_tinh TEXT,
@@ -114,127 +115,97 @@ def add_data_to_sqlite(df_sinh_vien, dot, ma_lop, ten_mon_hoc, mssv_list):
                             ten_mon_hoc TEXT,
                             email_student TEXT
                         )""")
-        
-             # Tạo bảng parents
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS parents (
-                mssv TEXT PRIMARY KEY,
-                email_ph TEXT  -- Email của phụ huynh
-            )
-        ''')
+
+        # Tạo bảng parents
+        cursor.execute('''CREATE TABLE IF NOT EXISTS parents (
+                            mssv TEXT PRIMARY KEY,
+                            email_ph TEXT  -- Email của phụ huynh
+                        )''')
 
         # Tạo bảng teachers
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS teachers (
-                mssv TEXT PRIMARY KEY,
-                email_gvcn TEXT  -- Email của giáo viên chủ nhiệm
-            )
-        ''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS teachers (
+                            mssv TEXT PRIMARY KEY,
+                            email_gvcn TEXT  -- Email của giáo viên chủ nhiệm
+                        )''')
         
         # Tạo bảng TBM
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tbm (
-                mssv TEXT PRIMARY KEY,
-                email_tbm TEXT  -- Email của trưởng bộ môn
-            )
-        ''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS tbm (
+                            mssv TEXT PRIMARY KEY,
+                            email_tbm TEXT  -- Email của trưởng bộ môn
+                        )''')
         
         conn.commit()
 
-        # Xóa dữ liệu cũ trước khi thêm dữ liệu mới
-        cursor.execute("DELETE FROM students")
-        conn.commit()
-        
-        # Thêm dữ liệu mới vào bảng 
+        # Thêm dữ liệu mới vào bảng students
         for _, row in df_sinh_vien.iterrows():
             try:
-                values_to_insert = (
-                    str(row['MSSV']),
-                    str(row['Họ đệm']),
-                    str(row['Tên']),
-                    str(row['Giới tính']),
-                    str(row['Ngày sinh']),
-                    str(row['11/06/2024']),  # Giá trị ngày 11/06/2024
-                    str(row['18/06/2024']),  # Giá trị ngày 18/06/2024
-                    str(row['25/06/2024']),  # Giá trị ngày 25/06/2024
-                    str(row['02/07/2024']),  # Giá trị ngày 02/07/2024
-                    str(row['09/07/2024']),  # Giá trị ngày 09/07/2024
-                    str(row['23/07/2024']),  # Giá trị ngày 23/07/2024
-                    int(float(row['Vắng có phép'])),
-                    int(float(row['Vắng không phép'])),
-                    int(float(row['Tổng số tiết'])),
-                    float(row['(%) vắng']),
-                    int(row['Tổng buổi vắng']),  # Tổng buổi vắng
-                    dot,
-                    ma_lop,
-                    ten_mon_hoc
-                )
+                # Kiểm tra xem cặp MSSV và Mã lớp đã tồn tại chưa
+                cursor.execute("SELECT COUNT(*) FROM students WHERE mssv = ? AND ma_lop = ?", (row['MSSV'], ma_lop))
+                exists = cursor.fetchone()[0] > 0
+                
+                # Nếu không tồn tại thì thêm vào
+                if not exists:
+                    values_to_insert = (
+                        str(row['MSSV']),
+                        str(row['Họ đệm']),
+                        str(row['Tên']),
+                        str(row['Giới tính']),
+                        str(row['Ngày sinh']),
+                        str(row['11/06/2024']),
+                        str(row['18/06/2024']),
+                        str(row['25/06/2024']),
+                        str(row['02/07/2024']),
+                        str(row['09/07/2024']),
+                        str(row['23/07/2024']),
+                        int(float(row['Vắng có phép'])),
+                        int(float(row['Vắng không phép'])),
+                        int(float(row['Tổng số tiết'])),
+                        float(row['(%) vắng']),
+                        int(row['Tổng buổi vắng']),
+                        dot,
+                        ma_lop,
+                        ten_mon_hoc
+                    )
 
-                cursor.execute("""INSERT INTO students (
-                                    mssv, ho_dem, ten, gioi_tinh, ngay_sinh, 
-                                    "11/06/2024", "18/06/2024", "25/06/2024", "02/07/2024", "09/07/2024", "23/07/2024",
-                                    vang_co_phep, vang_khong_phep, tong_so_tiet, ty_le_vang, tong_buoi_vang,
-                                    dot, ma_lop, ten_mon_hoc) 
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", values_to_insert)
+                    cursor.execute("""INSERT INTO students (
+                                        mssv, ho_dem, ten, gioi_tinh, ngay_sinh, 
+                                        "11/06/2024", "18/06/2024", "25/06/2024", "02/07/2024", "09/07/2024", "23/07/2024",
+                                        vang_co_phep, vang_khong_phep, tong_so_tiet, ty_le_vang, tong_buoi_vang,
+                                        dot, ma_lop, ten_mon_hoc) 
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", values_to_insert)
+                else:
+                    print(f"MSSV: {row['MSSV']} với mã lớp: {ma_lop} đã tồn tại. Không thêm vào DB.")
 
             except Exception as e:
                 print(f"Lỗi khi thêm sinh viên {row['MSSV']}: {e}")
         
-        # Thêm dữ liệu vào bảng students
+        # Thêm email vào bảng students
         for mssv in mssv_list:
-            email_student = f"tranhuuhauthh@gmail.com"  # Tạo email mẫu cho phụ huynh
+            email_student = f"tranhuuhauthh@gmail.com"  # Tạo email mẫu cho sinh viên
             cursor.execute('UPDATE students SET email_student = ? WHERE mssv = ?', (email_student, mssv))
             
-        # Xóa dữ liệu cũ trước khi thêm dữ liệu mới
+        # Xóa dữ liệu cũ trước khi thêm dữ liệu mới vào bảng parents
         cursor.execute("DELETE FROM parents")
-        # Thêm dữ liệu vào bảng parents
         for mssv in mssv_list:
             email_ph = f"tranhuuhauthh@gmail.com"  # Tạo email mẫu cho phụ huynh
             cursor.execute('INSERT OR IGNORE INTO parents (mssv, email_ph) VALUES (?, ?)', (mssv, email_ph))
 
-        # Xóa dữ liệu cũ trước khi thêm dữ liệu mới
+        # Xóa dữ liệu cũ trước khi thêm dữ liệu mới vào bảng teachers
         cursor.execute("DELETE FROM teachers")
-        # Thêm dữ liệu vào bảng teachers
         for mssv in mssv_list:
             email_gvcn = f"tranhuuhauthh@gmail.com"  # Tạo email mẫu cho giáo viên chủ nhiệm
             cursor.execute('INSERT OR IGNORE INTO teachers (mssv, email_gvcn) VALUES (?, ?)', (mssv, email_gvcn))
             
-        # Xóa dữ liệu cũ trước khi thêm dữ liệu mới
+        # Xóa dữ liệu cũ trước khi thêm dữ liệu mới vào bảng tbm
         cursor.execute("DELETE FROM tbm")
-        # Thêm dữ liệu vào bảng tbm
         for mssv in mssv_list:
-            email_tbm = f"tranhuuhauthh@gmail.com"  # Tạo email mẫu cho giáo viên chủ nhiệm
+            email_tbm = f"tranhuuhauthh@gmail.com"  # Tạo email mẫu cho trưởng bộ môn
             cursor.execute('INSERT OR IGNORE INTO tbm (mssv, email_tbm) VALUES (?, ?)', (mssv, email_tbm))
 
         conn.commit()   
         conn.close()
     except Exception as e:
         print(f"Lỗi khi thêm dữ liệu vào SQLite: {e}")
-
-def clear_table():
-    # Kết nối đến cơ sở dữ liệu (thay đổi tên tệp cơ sở dữ liệu nếu cần)
-    conn = sqlite3.connect('students.db')  
-    cursor = conn.cursor()
-    
-    try:
-        # Xóa dữ liệu trong bảng students
-        cursor.execute("DELETE FROM students")
-        
-        # Xóa dữ liệu trong bảng parents
-        cursor.execute("DELETE FROM parents")
-        
-        # Xóa dữ liệu trong bảng teachers
-        cursor.execute("DELETE FROM teachers")
-
-        # Xác nhận thay đổi
-        conn.commit()
-        print("Dữ liệu đã được xóa thành công từ các bảng.")
-    except Exception as e:
-        print(f"Đã xảy ra lỗi khi xóa dữ liệu: {e}")
-    finally:
-        # Đóng kết nối
-        cursor.close()
-        conn.close()
 
 def load_from_excel_to_treeview(tree):
     df_sinh_vien, dot, ma_lop, ten_mon_hoc, mssv_list = load_data()
@@ -246,25 +217,74 @@ def load_from_excel_to_treeview(tree):
         for row in tree.get_children():
             tree.delete(row)
 
-        # Thêm cột Đợt, Mã lớp và Tên môn học vào DataFrame
-        df_sinh_vien['Đợt'] = dot
-        df_sinh_vien['Mã lớp'] = ma_lop
-        df_sinh_vien['Tên môn học'] = ten_mon_hoc
+        # Kết nối đến cơ sở dữ liệu để lấy dữ liệu
+        conn = sqlite3.connect('students.db')
+        cursor = conn.cursor()
 
-        # Loại bỏ cột email nếu tồn tại
-        if 'email_student' in df_sinh_vien.columns:
-            df_sinh_vien = df_sinh_vien.drop(columns=['email_student'])
-
-        # Chọn các cột cần hiển thị
-        columns_to_show = ['MSSV', 'Họ đệm', 'Tên', 'Giới tính', 'Ngày sinh', 'Vắng có phép', 
-                           'Vắng không phép', 'Tổng số tiết', '(%) vắng', 'Tổng buổi vắng', 
-                           'Đợt', 'Mã lớp', 'Tên môn học']
+        # Lấy dữ liệu từ bảng students
+        cursor.execute("SELECT * FROM students")
+        rows = cursor.fetchall()
+        conn.close()
 
         # Hiển thị dữ liệu đã tải vào Treeview với cột STT
-        for index, row in df_sinh_vien.iterrows():
-            stt = len(tree.get_children()) + 1  # Lấy số lượng hàng hiện tại trong Treeview và cộng thêm 1
-            tree.insert('', 'end', values=[stt] + list(row[columns_to_show]))
+        for index, row in enumerate(rows):
+            stt = index + 1  # Số thứ tự
 
+            # Chỉ lấy các cột cần thiết
+            data_to_insert = [
+                row[1],  # MSSV
+                row[2],  # Họ đệm
+                row[3],  # Tên
+                row[4],  # Giới tính
+                row[5],  # Ngày sinh
+                row[12],  # Vắng có phép
+                row[13],  # Vắng không phép
+                row[14],  # Tổng số tiết
+                row[15],  # (%) vắng
+                row[16],  # Tổng buổi vắng
+                row[17],  # Đợt
+                row[18],  # Mã lớp
+                row[19]   # Tên môn học
+            ]
+
+            # Thêm dữ liệu vào Treeview, bao gồm STT
+            tree.insert('', 'end', values=[stt] + data_to_insert)  # Thêm dữ liệu vào Treeview
+            
+    update_button_states()
+    
+      
+def clear_table(tree):
+    # Kết nối đến cơ sở dữ liệu
+    conn = sqlite3.connect('students.db')  
+    cursor = conn.cursor()
+    
+    try:
+        # Xóa dữ liệu trong các bảng
+        rows_deleted = 0
+        cursor.execute("DELETE FROM students")
+        rows_deleted += cursor.rowcount
+        
+        cursor.execute("DELETE FROM parents")
+        rows_deleted += cursor.rowcount
+        
+        cursor.execute("DELETE FROM teachers")
+        rows_deleted += cursor.rowcount
+
+        # Xác nhận thay đổi
+        conn.commit()
+        print(f"Dữ liệu đã được xóa thành công từ các bảng. Số lượng dòng đã xóa: {rows_deleted}")
+       
+    except sqlite3.Error as e:
+        print(f"Đã xảy ra lỗi khi xóa dữ liệu: {e}")
+    finally:
+        # Đóng kết nối
+        cursor.close()
+        conn.close()
+    
+    refresh_treeview(tree)
+    
+    update_button_states()
+    
 def refresh_treeview(tree):
     # Xóa dữ liệu hiện tại trong treeview
     for item in tree.get_children():
@@ -381,13 +401,16 @@ def add_student(tree):
         command=save_student, 
         font=("Times New Roman", 9, "bold"),  # Giảm kích thước font
         bg="#F2A2C0",  # Màu nền cho nút
-        fg="white",  # Màu chữ trắng
+        fg="black",  # Màu chữ trắng
         padx=10, pady=5,  # Giảm độ đệm để nút nhỏ hơn
         relief=RAISED, 
         bd=2  # Độ dày viền
     )
     save_button.grid(row=len(labels), column=0, columnspan=2, pady=15)
     save_button.configure(highlightbackground="#F2A2C0", highlightthickness=2) 
+    
+    update_button_states()
+
 
 def edit_student(tree):
     selected_item = tree.selection()
@@ -400,7 +423,7 @@ def edit_student(tree):
     window.title("Chỉnh Sửa Sinh Viên")
     
     # Đặt kích thước cho cửa sổ
-    window.geometry("400x400")  # Tăng kích thước để vừa với các ô nhập
+    window.geometry("270x400")  # Tăng kích thước để vừa với các ô nhập
 
     # Đặt màu nền cho cửa sổ
     window.configure(bg="#F2D0D3")
@@ -489,7 +512,7 @@ def edit_student(tree):
         finally:
             conn.close()
 
-    Button(window, text="Cập nhật", command=update_student, font=font_style, bg="#F2A2C0", fg="white").grid(row=len(values_to_display), column=0, columnspan=2, pady=20)
+    Button(window, text="Cập nhật", command=update_student, font=font_style, bg="#F2A2C0", fg="black").grid(row=len(values_to_display), column=0, columnspan=2, pady=20)
 
 def delete_student(tree):
     selected_item = tree.selection()
@@ -513,6 +536,8 @@ def delete_student(tree):
 
     refresh_treeview(tree)  # Cập nhật Treeview
     messagebox.showinfo("Thành công", "Đã xóa sinh viên thành công.")
+    update_button_states()
+
 
 def view_details(tree):
     conn = sqlite3.connect('students.db')
@@ -544,7 +569,7 @@ def view_details(tree):
             
             detail_window = tk.Toplevel()
             detail_window.title("Chi tiết thông tin sinh viên")
-            detail_window.geometry("650x500")
+            detail_window.geometry("650x500+450+150")
             detail_window.configure(bg="#F2D0D3")
             
             labels = [
@@ -1503,13 +1528,35 @@ def send_late_report_email(from_email, email_class_codes):
 #     return question in answered_questions
 
 # Thiết lập cơ sở dữ liệu để lưu trữ câu hỏi và phản hồi
-
-
+def update_button_states():
+    if len(tree.get_children()) == 0:  # Kiểm tra nếu Treeview rỗng
+        # Tắt các nút
+        buttons = [add_button, edit_button, delete_button, sort_button, 
+                   send_warning_email_button, view_detail_button, 
+                   student_chart_button, absence_types_chart_button,
+                   summarize_button, send_summary_email_button, refresh_button]
+        
+        for button in buttons:
+            button.config(state=tk.DISABLED)
+    else:
+        # Bật các nút
+        add_button.config(state=tk.NORMAL)
+        edit_button.config(state=tk.NORMAL)
+        delete_button.config(state=tk.NORMAL)
+        sort_button.config(state=tk.NORMAL)
+        send_warning_email_button.config(state=tk.NORMAL)
+        view_detail_button.config(state=tk.NORMAL)
+        student_chart_button.config(state=tk.NORMAL)
+        absence_types_chart_button.config(state=tk.NORMAL)
+        summarize_button.config(state=tk.NORMAL)
+        send_summary_email_button.config(state=tk.NORMAL)
+        refresh_button.config(state=tk.NORMAL)
+        
 def main():
     global df_sinh_vien, ma_lop, ten_mon_hoc, summary_file
     global chart_frame  
     global tree  # Declare tree as a global variable
-    global add_button, edit_button, delete_button, sort_button, student_chart_button, absence_types_chart_button, send_warning_email_button, view_detail_button
+    global add_button, edit_button, delete_button, sort_button, student_chart_button, absence_types_chart_button, send_warning_email_button, view_detail_button, summarize_button, send_summary_email_button, refresh_button
     root = Tk()
     root.title("Quản Lý Sinh Viên")
     
@@ -1517,7 +1564,7 @@ def main():
     root.configure(bg="#F2D0D3")  # Màu nền chính
 
     # Thêm logo vào tiêu đề của ứng dụng
-    logo_icon = Image.open("Test/logoSGu.png")
+    logo_icon = Image.open("GUI_Tkinter/logoSGu.png")
     logo_icon = logo_icon.resize((32, 32), Image.LANCZOS)
     logo_icon_photo = ImageTk.PhotoImage(logo_icon)
     root.iconphoto(False, logo_icon_photo)
@@ -1530,7 +1577,7 @@ def main():
     style.configure("TButton", font=("Times New Roman", 10), padding=6)
 
     # Thêm logo vào giao diện
-    logo_image = Image.open("Test/logocnttsgu.png")
+    logo_image = Image.open("GUI_Tkinter/logocnttsgu.png")
     logo_image = logo_image.resize((240, 50), Image.LANCZOS)
     logo_photo = ImageTk.PhotoImage(logo_image)
     logo_label = Label(root, image=logo_photo, bg="#F2D0D3")  # Màu nền logo
@@ -1583,54 +1630,58 @@ def main():
     load_button = Button(left_frame, text="Tải file", command=lambda: load_from_excel_to_treeview(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10))
     load_button.pack(anchor='w', pady=5, fill='x')
 
-    add_button = Button(left_frame, text="Thêm sinh viên", command=lambda: add_student(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=DISABLED)
+    # Định nghĩa các nút
+    add_button = tk.Button(left_frame, text="Thêm sinh viên", command=lambda: add_student(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=tk.DISABLED)
     add_button.pack(anchor='w', pady=5, fill='x')
 
-    edit_button = Button(left_frame, text="Sửa sinh viên", command=lambda: edit_student(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=DISABLED)
+    edit_button = tk.Button(left_frame, text="Sửa sinh viên", command=lambda: edit_student(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=tk.DISABLED)
     edit_button.pack(anchor='w', pady=5, fill='x')
 
-    delete_button = Button(left_frame, text="Xóa sinh viên", command=lambda: delete_student(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=DISABLED)
+    delete_button = tk.Button(left_frame, text="Xóa sinh viên", command=lambda: delete_student(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=tk.DISABLED)
     delete_button.pack(anchor='w', pady=5, fill='x')
 
-    sort_button = Button(left_frame, text="Sắp xếp", command=lambda: sort_students_by_absences(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=DISABLED)
+    sort_button = tk.Button(left_frame, text="Sắp xếp", command=lambda: sort_students_by_absences(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=tk.DISABLED)
     sort_button.pack(anchor='w', pady=5, fill='x')
 
-    send_warning_email_button = Button(left_frame, text="Gửi Email cảnh báo", command=send_warning_emails, width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=DISABLED)
+    send_warning_email_button = tk.Button(left_frame, text="Gửi Email cảnh báo", command=send_warning_emails, width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=tk.DISABLED)
     send_warning_email_button.pack(anchor='w', pady=5, fill='x')
 
-    view_detail_button = Button(left_frame, text="Xem Chi Tiết", command=lambda: view_details(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=DISABLED)
+    view_detail_button = tk.Button(left_frame, text="Xem Chi Tiết", command=lambda: view_details(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=tk.DISABLED)
     view_detail_button.pack(anchor='w', pady=5, fill='x')
 
     # Các nút nằm ở giữa
-    student_chart_button = Button(center_frame, text="Biểu đồ % vắng", command=show_student_chart, width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=DISABLED)
+    student_chart_button = tk.Button(center_frame, text="Biểu đồ % vắng", command=show_student_chart, width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=tk.DISABLED)
     student_chart_button.pack(anchor='center', pady=10)
 
-    absence_types_chart_button = Button(center_frame, text="Biểu đồ vắng P/K", command=show_absence_types_chart, width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=DISABLED)
+    absence_types_chart_button = tk.Button(center_frame, text="Biểu đồ vắng P/K", command=show_absence_types_chart, width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=tk.DISABLED)
     absence_types_chart_button.pack(anchor='center', pady=10)
 
-    summarize_button = Button(center_frame, text="Tổng hợp file", command=lambda: load_and_summarize_students(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10))
+    summarize_button = tk.Button(center_frame, text="Xóa dữ liệu", command=lambda: clear_table(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=tk.DISABLED)
     summarize_button.pack(anchor='center', pady=10)
 
-    send_summary_email_button = Button(center_frame, text="Gửi Email tổng hợp", 
-                                command=lambda: save_absent_students_to_excel() if summary_file else print("Không có tệp tóm tắt để gửi!"), 
-                                width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10))
+    send_summary_email_button = tk.Button(center_frame, text="Gửi Email tổng hợp", 
+                                        command=lambda: save_absent_students_to_excel() if summary_file else print("Không có tệp tóm tắt để gửi!"), 
+                                        width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=tk.DISABLED)
     send_summary_email_button.pack(anchor='center', pady=10)
     
-    refresh_button = Button(center_frame, text="Refresh", command=lambda: refresh_treeview(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10))
+    refresh_button = Button(center_frame, text="Refresh", command=lambda: refresh_treeview(tree), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=tk.DISABLED)
     refresh_button.pack(anchor='center', pady=10)
     
     # send_question_button = Button(center_frame, text="send question", command=lambda: send_question('carotneee4@gmail.com', 'tranhuuhauthh@gmail.com', 'tranhuuhauthh@gmail.com', 'Câu hỏi mẫu từ sinh viên'), width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10))
     # send_question_button.pack(anchor='center', pady=10)
     
     initialize_database()
-    clear_table()
+    clear_table(tree)
+    refresh_treeview(tree) 
     
+       
     # Khởi tạo chart_frame
     chart_frame = Frame(root, bg="#F2D0D3")  # Màu nền chart_frame
     chart_frame.pack(fill='both', expand=True)
     
+    update_button_states()
     # Gán hàm cho nút tải file
-    load_button.config(command=load_and_enable)    
+    # load_button.config(command=load_and_enable)    
       
 if __name__ == "__main__":
     # Khởi tạo cơ sở dữ liệu người dùng
