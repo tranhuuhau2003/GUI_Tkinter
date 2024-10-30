@@ -28,7 +28,6 @@ from collections import defaultdict
 from tkinter import scrolledtext
 import random
 
-#adscasda
 # Biến toàn cục để lưu tên file tóm tắt
 summary_file = 'TongHopSinhVienVangCacLop.xlsx'
 
