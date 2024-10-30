@@ -327,7 +327,7 @@ def add_student(tree):
     # Tạo một cửa sổ mới để thêm sinh viên
     window = Toplevel()
     window.title("Thêm Sinh Viên")
-    window.geometry("250x450")
+    window.geometry("350x450+550+130")
     window.configure(bg="#F2D0D3")  # Thiết lập màu nền cho cửa sổ
 
     labels = ["MSSV", "Họ đệm", "Tên", "Giới tính", "Ngày sinh", 
@@ -423,7 +423,7 @@ def edit_student(tree):
     window.title("Chỉnh Sửa Sinh Viên")
     
     # Đặt kích thước cho cửa sổ
-    window.geometry("270x400")  # Tăng kích thước để vừa với các ô nhập
+    window.geometry("400x400+450+150")  # Tăng kích thước để vừa với các ô nhập
 
     # Đặt màu nền cho cửa sổ
     window.configure(bg="#F2D0D3")
@@ -865,62 +865,141 @@ def send_email(to_address, subject, message):
         print(f"Email sent to {to_address}")
     except Exception as e:
         print(f"Failed to send email to {to_address}: {e}")
-
+        
 def send_warning_emails():
-    """Check and send warning emails for students."""
-    # Connect to SQLite database
+    """Gửi email cảnh báo cho sinh viên đã chọn hoặc tất cả sinh viên nếu không có ai được chọn."""
+    # Kết nối với cơ sở dữ liệu SQLite
     connection = sqlite3.connect('students.db')
     cursor = connection.cursor()
 
+    # Lấy danh sách sinh viên từ Treeview
+    selected_item = tree.selection()
+
+    # Lấy danh sách ngày vắng
+    absence_dates_keys = ["11/06/2024", "18/06/2024", "25/06/2024", "02/07/2024", "09/07/2024", "23/07/2024"]
+
     try:
-        query = """
-        SELECT mssv, ho_dem, ten, ma_lop, vang_co_phep, vang_khong_phep, tong_so_tiet, ty_le_vang
-        FROM students
-        """
-        cursor.execute(query)
-        records = cursor.fetchall()
+        if selected_item:
+            # Nếu có sinh viên được chọn, chỉ gửi cho sinh viên đó
+            for item in selected_item:
+                item_values = tree.item(item, 'values')  # Lấy giá trị của item được chọn
+                mssv = item_values[1]  # MSSV
+                ho_dem = item_values[2]  # Họ đệm
+                ten = item_values[3]  # Tên
+                ma_lop = item_values[12]  # Mã lớp
 
-        # Biến lưu trữ địa chỉ email đã gửi
-        sent_emails = set()
+                # Chuyển đổi giá trị sang kiểu số
+                ty_le_vang = float(item_values[9])  # Tỷ lệ vắng (%)
+                vang_co_phep = int(item_values[6])  # Vắng có phép
+                vang_khong_phep = int(item_values[7])  # Vắng không phép
 
-        for row in records:
-            mssv, ho_dem, ten, ma_lop, vang_co_phep, vang_khong_phep, tong_so_tiet, ty_le_vang = row
-            
-            # Get student and related emails
-            student_email = get_student_email(cursor, mssv)
-            parent_email = get_parent_email(cursor, mssv)
-            homeroom_teacher_email = get_teacher_email(cursor, mssv)
-            tbm_email = get_tbm_email(cursor, mssv)
+                # Kiểm tra tổng số buổi vắng
+                total_absences = vang_co_phep + vang_khong_phep
+                
+                if total_absences == 0:
+                    messagebox.showinfo("Thông báo", f"Sinh viên {ho_dem} {ten} không có buổi vắng.")
+                    continue  # Không gửi email, chuyển sang sinh viên tiếp theo
 
-            # Check and send warnings based on absence rate
-            if ty_le_vang >= 50:
-                subject = "Cảnh báo học vụ: Vắng học quá 50%"
-                message = (f"Sinh viên {ho_dem} {ten} (Mã lớp: {ma_lop}) đã vắng hơn 50% số buổi học.")
-                send_email(student_email, subject, message)
-                send_email(parent_email, subject, message)
-                send_email(homeroom_teacher_email, subject, message)
-                send_email(tbm_email, subject, message)
+                # Lấy email sinh viên và phụ huynh
+                student_email = get_student_email(cursor, mssv)
+                parent_email = get_parent_email(cursor, mssv)
 
-                # Thêm vào tập hợp địa chỉ email đã gửi
-                sent_emails.update([student_email, parent_email, homeroom_teacher_email, tbm_email])
+                # Truy vấn lấy thời gian vắng từ cơ sở dữ liệu
+                query = f"""
+                SELECT "11/06/2024", "18/06/2024", "25/06/2024", "02/07/2024", "09/07/2024", "23/07/2024"
+                FROM students WHERE mssv = ?
+                """
+                cursor.execute(query, (mssv,))
+                absence_dates = cursor.fetchone()
 
-            elif ty_le_vang >= 20:
-                subject = "Cảnh báo học vụ: Vắng học quá 20%"
-                message = f"Sinh viên {ho_dem} {ten} (Mã lớp: {ma_lop}) đã vắng hơn 20% số buổi học."
-                send_email(student_email, subject, message)
+                # Thời gian vắng: Tìm kiếm các cột thời gian vắng
+                absence_duration = []
+                for date, status in zip(absence_dates_keys, absence_dates):
+                    if status == "K":
+                        absence_duration.append(f"{date}: Không phép")
+                    elif status == "P":
+                        absence_duration.append(f"{date}: Có phép")
 
-                # Thêm vào tập hợp địa chỉ email đã gửi
-                sent_emails.add(student_email)
+                absence_duration_str = ', '.join(absence_duration) if absence_duration else "Không có buổi vắng"
 
-        # Thông báo chỉ một lần sau khi hoàn thành gửi email
-        if sent_emails:
-            email_list = ', '.join(sent_emails)  # Chuyển đổi tập hợp thành chuỗi
-            messagebox.showinfo("Email Success", f"Email đã gửi thành công tới: {email_list}")
+                # Tạo nội dung email
+                subject = "Cảnh báo học vụ: Vắng học"
+                message = (f"Chào sinh viên {ho_dem} {ten} (Mã lớp: {ma_lop}) đã vắng {ty_le_vang}% số buổi học.\n"
+                           f"Tổng số tiết vắng: {total_absences}, Thời gian vắng: {absence_duration_str}")
+
+                # Hiển thị thông tin email trước khi gửi
+                email_content = f"Tiêu đề: {subject}\nNội dung:\n{message}"
+                messagebox.showinfo("Nội dung email", email_content)
+
+                # Xác nhận gửi email
+                if messagebox.askyesno("Xác nhận", "Bạn có muốn gửi email cảnh báo không?"):
+                    send_email(student_email, subject, message)
+                    send_email(parent_email, subject, message)
+                    messagebox.showinfo("Thông báo", f"Đã gửi email cho sinh viên {ho_dem} {ten}.")
+                else:
+                    messagebox.showinfo("Thông báo", f"Không gửi email cho sinh viên {ho_dem} {ten}.")
+
+        else:
+            # Nếu không có sinh viên nào được chọn, gửi email cho tất cả sinh viên
+            query = """
+            SELECT mssv, ho_dem, ten, ma_lop, vang_co_phep, vang_khong_phep, tong_so_tiet, ty_le_vang,
+                   "11/06/2024", "18/06/2024", "25/06/2024", "02/07/2024", "09/07/2024", "23/07/2024"
+            FROM students
+            """
+            cursor.execute(query)
+            records = cursor.fetchall()
+
+            for row in records:
+                mssv, ho_dem, ten, ma_lop, vang_co_phep, vang_khong_phep, tong_so_tiet, ty_le_vang, *absence_dates = row
+
+                # Tổng số buổi vắng
+                total_absences = vang_co_phep + vang_khong_phep
+                
+                # Chuyển đổi giá trị sang kiểu số
+                ty_le_vang = float(ty_le_vang)  # Tỷ lệ vắng (%)
+
+                # Lấy email sinh viên và phụ huynh
+                student_email = get_student_email(cursor, mssv)
+                parent_email = get_parent_email(cursor, mssv)
+
+                # Thời gian vắng: Dữ liệu đã lấy từ cơ sở dữ liệu
+                absence_duration = []
+                for date, status in zip(absence_dates_keys, absence_dates):
+                    if status == "K":
+                        absence_duration.append(f"{date}: Không phép")
+                    elif status == "P":
+                        absence_duration.append(f"{date}: Có phép")
+
+                absence_duration_str = ', '.join(absence_duration) if absence_duration else "Không có buổi vắng"
+
+                # Tạo nội dung email
+                if ty_le_vang >= 50:
+                    subject = "Cảnh báo học vụ: Vắng học quá 50%"
+                    message = (f"Chào sinh viên {ho_dem} {ten} (Mã lớp: {ma_lop}) đã vắng hơn 50% số buổi học.\n"
+                               f"Tổng số tiết vắng: {total_absences}, Thời gian vắng: {absence_duration_str}")
+
+                elif ty_le_vang >= 20:
+                    subject = "Cảnh báo học vụ: Vắng học quá 20%"
+                    message = (f"Chào sinh viên {ho_dem} {ten} (Mã lớp: {ma_lop}) đã vắng hơn 20% số buổi học.\n"
+                               f"Tổng số tiết vắng: {total_absences}, Thời gian vắng: {absence_duration_str}")
+
+                # Hiển thị thông tin email trước khi gửi
+                email_content = f"Tiêu đề: {subject}\nNội dung:\n{message}"
+                messagebox.showinfo("Nội dung email", email_content)
+
+                # Xác nhận gửi email
+                if messagebox.askyesno("Xác nhận", "Bạn có muốn gửi email cảnh báo không?"):
+                    send_email(student_email, subject, message)
+                    send_email(parent_email, subject, message)
+
+            messagebox.showinfo("Gửi Email", "Email đã được gửi cho tất cả sinh viên có tỷ lệ vắng hơn 20%.")
 
     except Exception as e:
-        messagebox.showerror("Email Error", f"Có lỗi xảy ra khi gửi email: {e}")  # Thông báo lỗi
+        messagebox.showerror("Email Error", f"Có lỗi xảy ra khi gửi email: {e}")
+
     finally:
         connection.close()
+
 
 def get_student_email(cursor, mssv):
     """Retrieve student email from the database based on MSSV."""
@@ -950,128 +1029,53 @@ def get_tbm_email(cursor, mssv):
     result = cursor.fetchone()
     return result[0] if result else None
 
-def load_and_summarize_students(tree):
-    global class_codes
-    class_codes = []  # Khởi tạo danh sách để lưu mã lớp
 
-    # Xóa tất cả mục trong giao diện (tree) ngay từ đầu
-    for item in tree.get_children():
-        tree.delete(item)
+def create_summary_and_send_email():
+    # Kết nối đến cơ sở dữ liệu
+    connection = sqlite3.connect('students.db')
+    cursor = connection.cursor()
 
-    excel_files = filedialog.askopenfilenames(title='Chọn các file Excel', filetypes=[("Excel files", "*.xlsx;*.xls")])
-    
-    # Kiểm tra xem có tệp Excel hợp lệ không
-    if not excel_files or not all(os.path.exists(f) for f in excel_files):
-        print("Không có tệp Excel hợp lệ được chọn!")
-        return
+    try:
+        # Truy vấn tất cả các cột cần thiết từ bảng students (loại bỏ các cột ngày cụ thể) với sinh viên có tỷ lệ vắng trên 20%
+        cursor.execute("""
+            SELECT mssv, ho_dem, ten, gioi_tinh, ngay_sinh, vang_co_phep, vang_khong_phep, tong_so_tiet, 
+                   ty_le_vang, tong_buoi_vang, dot, ma_lop, ten_mon_hoc, email_student
+            FROM students
+            WHERE ty_le_vang > 20
+        """)
+        records = cursor.fetchall()
 
-    all_data = []
+        # Kiểm tra nếu không có sinh viên nào vượt ngưỡng vắng
+        if not records:
+            messagebox.showinfo("Thông báo", "Không có sinh viên nào có tỷ lệ vắng trên 20%.")
+            send_email_with_attachment(None, [], [], [])
+            return
 
-    for file in excel_files:
-        df = pd.read_excel(file, header=None)
-        df = df.fillna('')
+        # Chuyển đổi dữ liệu truy vấn thành DataFrame
+        df = pd.DataFrame(records, columns=[
+            "MSSV", "Họ đệm", "Tên", "Giới tính", "Ngày sinh", 
+            "Vắng có phép", "Vắng không phép", "Tổng số tiết", "Tỷ lệ vắng (%)", 
+            "Tổng buổi vắng", "Đợt", "Mã lớp", "Tên môn học", "Email sinh viên"
+        ])
 
-        dot = df.iloc[5, 2]
-        ma_lop = df.iloc[7, 2]
-        ten_mon_hoc = df.iloc[8, 2]
+        # Lưu dữ liệu vào file Excel
+        summary_file = "TongHopSinhVienVangNhieu.xlsx"
+        df.to_excel(summary_file, index=False)
 
-        df_sinh_vien = df.iloc[13:, [1, 2, 3, 4, 5, 24, 25, 26, 27]]
-        df_sinh_vien.columns = ['MSSV', 'Họ đệm', 'Tên', 'Giới tính', 'Ngày sinh', 'Vắng có phép', 'Vắng không phép', 'Tổng số tiết', '(%) vắng']
+        # Lấy danh sách các mã lớp, môn học và đợt học duy nhất
+        class_codes = df['Mã lớp'].unique().tolist()
+        subjects = df['Tên môn học'].unique().tolist()
+        periods = df['Đợt'].unique().tolist()
 
-        df_sinh_vien['(%) vắng'] = df_sinh_vien['(%) vắng'].apply(lambda x: str(x).replace(',', '.') if isinstance(x, str) else x)
-        df_sinh_vien['Vắng có phép'] = pd.to_numeric(df_sinh_vien['Vắng có phép'], errors='coerce').fillna(0)
-        df_sinh_vien['Vắng không phép'] = pd.to_numeric(df_sinh_vien['Vắng không phép'], errors='coerce').fillna(0)
-        df_sinh_vien['Tổng buổi vắng'] = df_sinh_vien['Vắng có phép'] + df_sinh_vien['Vắng không phép']
-
-        df_sinh_vien['Đợt'] = dot
-        df_sinh_vien['Mã lớp'] = ma_lop
-        df_sinh_vien['Tên môn học'] = ten_mon_hoc
-
-        # Xử lý cột Ngày sinh
-        df_sinh_vien['Ngày sinh'] = pd.to_datetime(df_sinh_vien['Ngày sinh'], errors='coerce')
-
-        all_data.append(df_sinh_vien)
-
-        save_students_to_sqlite(df_sinh_vien)  # Gọi hàm lưu sinh viên vào SQLite
-
-    combined_data = pd.concat(all_data, ignore_index=True)
-    combined_data['(%) vắng'] = pd.to_numeric(combined_data['(%) vắng'], errors='coerce').fillna(0)
-
-    combined_data.rename(columns={
-        'Họ đệm': 'ho_dem',
-        'Tên': 'ten',
-        'Giới tính': 'gioi_tinh',
-        'Ngày sinh': 'ngay_sinh',
-        'Vắng có phép': 'vang_co_phep',
-        'Vắng không phép': 'vang_khong_phep',
-        'Tổng số tiết': 'tong_so_tiet',
-        '(%) vắng': 'ty_le_vang',
-        'Tổng buổi vắng': 'tong_buoi_vang'
-    }, inplace=True)
-
-    # Xóa tất cả mục trong giao diện (tree) sau khi tổng hợp
-    for item in tree.get_children():
-        tree.delete(item)
-
-    conn = sqlite3.connect('tonghopsv.db')
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM tonghopsv")
-    rows = cursor.fetchall()
+        # Gọi hàm gửi email với thông tin đã lọc
+        send_email_with_attachment(summary_file, class_codes, subjects, periods)
         
-    # Hiển thị dữ liệu đã tải vào Treeview với cột STT
-    for row in rows:
-        stt = len(tree.get_children()) + 1  # Tạo STT tự động
-        tree.insert('', 'end', values=[stt] + list(row))
+    except Exception as e:
+        messagebox.showerror("Lỗi", f"Có lỗi xảy ra: {e}")
+    finally:
+        connection.close()
 
-    conn.close()
-
-    # Lưu mã lớp của các sinh viên có vắng > 50%
-    # class_codes = combined_data[combined_data['ty_le_vang'] >= 50.0]['Mã lớp'].unique().tolist()
-      
-def save_absent_students_to_excel(threshold=30.0):
-    global summary_file, class_codes
-
-    # Kết nối tới cơ sở dữ liệu để lấy dữ liệu sinh viên
-    conn = sqlite3.connect('tonghopsv.db')
-    cursor = conn.cursor()
-
-    # Truy vấn tất cả sinh viên trong bảng tonghopsv để lấy mã lớp
-    query_all_classes = "SELECT DISTINCT `ma_lop` FROM tonghopsv"
-    cursor.execute(query_all_classes)
-    all_class_rows = cursor.fetchall()
-
-    # Lưu mã lớp của tất cả sinh viên
-    class_codes = [row[0] for row in all_class_rows]
-    
-    # Truy vấn sinh viên có tỷ lệ vắng lớn hơn ngưỡng (threshold) để lưu vào file Excel
-    query_absent_students = f"SELECT * FROM tonghopsv WHERE ty_le_vang >= {threshold}"
-    cursor.execute(query_absent_students)
-    absent_rows = cursor.fetchall()
-
-    conn.close()
-
-    if absent_rows:
-        # Tạo DataFrame từ dữ liệu sinh viên có tỷ lệ vắng > threshold
-        df_absent_students = pd.DataFrame(absent_rows, columns=[
-            'MSSV', 'Họ đệm', 'Tên', 'Giới tính', 'Ngày sinh', 'Vắng có phép', 
-            'Vắng không phép', 'Tổng số tiết', '(%) vắng', 'Tổng buổi vắng', 
-            'Đợt', 'Mã lớp', 'Tên môn học'])
-
-        # Lưu sinh viên vắng nhiều vào tệp Excel
-        summary_file = 'TongHopSinhVienVangNhieu.xlsx'
-        df_absent_students.to_excel(summary_file, index=False)
-
-        print(f"Tệp tổng hợp sinh viên vắng nhiều đã được lưu tại: {summary_file}")
-        print(f"Mã lớp liên quan (tất cả sinh viên): {class_codes}")
-
-        # Gọi hàm gửi email với tệp Excel đính kèm
-        send_email_with_attachment(summary_file, class_codes)
-    else:
-        print("Không có sinh viên nào vượt quá ngưỡng vắng!")
-        return None, []
-
-def send_email_with_attachment(summary_file, class_codes):
+def send_email_with_attachment(summary_file, class_codes, subjects, periods):
     sender_email = "carotneee4@gmail.com" 
     sender_password = "bgjx tavb oxba ickr"
     recipient_email = "tranhuuhauthh@gmail.com"
@@ -1088,7 +1092,8 @@ def send_email_with_attachment(summary_file, class_codes):
 
     # Tạo phần thân email
     if class_codes:
-        body = "Đây là báo cáo tổng hợp sinh viên vắng nhiều của tất cả các lớp: " + ', '.join(class_codes)
+        body = ("Đây là báo cáo tổng hợp sinh viên vắng nhiều của các lớp: " + ', '.join(class_codes) +
+                "; Tên môn học: " + ', '.join(subjects) + "; Đợt: " + ', '.join(periods) + ".")
     else:
         body = "Không có sinh viên nào vượt quá ngưỡng vắng."
 
@@ -1176,7 +1181,7 @@ def show_student_chart():
     new_window.title("Biểu đồ tỷ lệ vắng sinh viên")
     window_width = 1300  # Chiều rộng của cửa sổ
     window_height = 700  # Chiều cao của cửa sổ
-    new_window.geometry(f"{window_width}x{window_height}")
+    new_window.geometry(f"{window_width}x{window_height}+100+50")
 
     canvas = FigureCanvasTkAgg(fig, master=new_window)
     canvas.draw()
@@ -1225,27 +1230,12 @@ def show_absence_types_chart():
     new_window.title("Biểu đồ vắng có phép và vắng không phép")
     window_width = 600  # Chiều rộng của cửa sổ
     window_height = 600  # Chiều cao của cửa sổ
-    new_window.geometry(f"{window_width}x{window_height}")
+    new_window.geometry(f"{window_width}x{window_height}+450+100")
 
     canvas = FigureCanvasTkAgg(fig, master=new_window)
     canvas.draw()
     canvas.get_tk_widget().pack(fill='both', expand=True)
     
-# Chỉnh sửa để kích hoạt các nút sau khi tải file
-def enable_buttons():
-    add_button.config(state=NORMAL)
-    edit_button.config(state=NORMAL)
-    delete_button.config(state=NORMAL)
-    sort_button.config(state=NORMAL)
-    student_chart_button.config(state=NORMAL)
-    absence_types_chart_button.config(state=NORMAL)
-    send_warning_email_button.config(state=NORMAL)
-    view_detail_button.config(state=NORMAL)
-
-# Cập nhật khi tải file thành công sẽ kích hoạt các nút
-def load_and_enable():
-    load_from_excel_to_treeview(tree)
-    enable_buttons()  # Kích hoạt các nút sau khi tải file
 
 def initialize_user_database():
     connection = sqlite3.connect('students.db')
@@ -1347,16 +1337,16 @@ def start_scheduler():
         check_emails_and_process()  # Kiểm tra email đến và xử lý
         
         # Kiểm tra xem ngày hiện tại là ngày 1 hoặc 25 và thời gian là đúng 12:00
-        if (now.day == 1 or now.day == 25) and now.hour == 12 and now.minute == 00:
+        if (now.day == 1 or now.day == 31) and now.hour == 2 and now.minute == 54:
             print("Đủ điều kiện gửi email. Gửi email...")
 
             # Gọi hàm send_email_with_attachment với đường dẫn tệp và mã lớp từ bảng tonghop
-            save_absent_students_to_excel()
+            create_summary_and_send_email()
 
         else:
             print(f"Hiện tại là {now.strftime('%Y-%m-%d %H:%M:%S')} - Không đủ điều kiện để gửi email.")
         
-        time.sleep(40)  # Sau mỗi lần kiểm tra, nó sẽ chờ 40 giây trước khi lặp lại
+        time.sleep(20)  # Sau mỗi lần kiểm tra, nó sẽ chờ 40 giây trước khi lặp lại
 
 def check_emails_and_process():
     # Thông tin đăng nhập email
@@ -1422,7 +1412,7 @@ def extract_class_codes_from_message(body):
 def send_late_report_email(from_email, email_class_codes):
     # Kiểm tra hạn chót (giả sử hạn chót là ngày 15 và 30 hàng tháng)
     today = datetime.today()
-    if today.day > 15 and today.day < 30:
+    if today.day > 15 and today.day <=31:
         # Tạo nội dung báo cáo
         subject = "Báo cáo quản lý về lớp trễ hạn"
         body = f"Người gửi: {from_email}\nLớp: {', '.join(email_class_codes)}\nTình trạng: Trễ hạn"
@@ -1557,7 +1547,7 @@ def main():
     global chart_frame  
     global tree  # Declare tree as a global variable
     global add_button, edit_button, delete_button, sort_button, student_chart_button, absence_types_chart_button, send_warning_email_button, view_detail_button, summarize_button, send_summary_email_button, refresh_button
-    root = Tk()
+    root = tk.Tk()
     root.title("Quản Lý Sinh Viên")
     
     # Thay đổi màu nền cho cửa sổ chính
@@ -1660,7 +1650,7 @@ def main():
     summarize_button.pack(anchor='center', pady=10)
 
     send_summary_email_button = tk.Button(center_frame, text="Gửi Email tổng hợp", 
-                                        command=lambda: save_absent_students_to_excel() if summary_file else print("Không có tệp tóm tắt để gửi!"), 
+                                        command=lambda: create_summary_and_send_email() if summary_file else print("Không có tệp tóm tắt để gửi!"), 
                                         width=button_width, bg=button_color, fg='black', font=("Times New Roman", 10), state=tk.DISABLED)
     send_summary_email_button.pack(anchor='center', pady=10)
     
@@ -1682,7 +1672,8 @@ def main():
     update_button_states()
     # Gán hàm cho nút tải file
     # load_button.config(command=load_and_enable)    
-      
+    root.mainloop()  # Thay thế vòng lặp while True bằng root.mainloop()
+
 if __name__ == "__main__":
     # Khởi tạo cơ sở dữ liệu người dùng
     initialize_user_database()
@@ -1695,8 +1686,8 @@ if __name__ == "__main__":
     # Hiển thị form đăng nhập
     show_login_form()
     
-    # Để giữ cho chương trình hoạt động, có thể cần một vòng lặp chính
-    while True:
-        # schedule.run_pending()  # Thêm dòng này để chạy các tác vụ đã lên lịch
-        time.sleep(1)
+    # # Để giữ cho chương trình hoạt động, có thể cần một vòng lặp chính
+    # while True:
+    #     # schedule.run_pending()  # Thêm dòng này để chạy các tác vụ đã lên lịch
+    #     time.sleep(1)
         
